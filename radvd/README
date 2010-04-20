@@ -1,0 +1,19 @@
+sudo cp icmp6.h /usr/include/netinet/icmp6.h  (you should overwrite if needed
+
+/* before begining, we need some package; its important to do that now*/
+apt-get install flex
+apt-get install bison
+apt-get install patch
+
+/*I suppose you got gcc and libstb already installed */
+
+wget http://www.litech.org/radvd/dist/radvd-1.6.tar.gz
+tar zxvf radvd-1.6.tar.gz
+
+patch -p0 < radvdNamingAdv.patch   /* apply ourmodification to radvd */
+cd radvd-1.6
+./configure
+make
+./radvd -C ../conf.conf
+
+The conf.conf file in the configuration file of radvd. 
