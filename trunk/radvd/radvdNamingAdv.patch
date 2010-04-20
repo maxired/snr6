@@ -1,0 +1,227 @@
+diff -b -w -u radvd-1.6/gram.y radvd-1.6-end-clean/gram.y
+--- radvd-1.6/gram.y	2009-11-07 13:42:14.000000000 -0500
++++ radvd-1.6-end-clean/gram.y	2010-04-17 03:51:56.000000000 -0400
+@@ -22,6 +22,7 @@
+ extern struct Interface *IfaceList;
+ struct Interface *iface = NULL;
+ struct AdvPrefix *prefix = NULL;
++struct AdvNaming *naming = NULL;
+ struct AdvRoute *route = NULL;
+ struct AdvRDNSS *rdnss = NULL;
+ 
+@@ -63,6 +64,7 @@
+ %token		T_ROUTE
+ %token		T_RDNSS
+ %token		T_CLIENTS
++%token		T_NAMING
+ 
+ %token	<str>	STRING
+ %token	<num>	NUMBER
+@@ -116,6 +118,7 @@
+ 
+ %type	<str>	name
+ %type	<pinfo> prefixdef 
++%type	<ninfo> namingdef 
+ %type	<ainfo> clientslist v6addrlist
+ %type	<rinfo>	routedef 
+ %type	<rdnssinfo> rdnssdef 
+@@ -128,6 +131,9 @@
+ 	struct in6_addr		*addr;
+ 	char			*str;
+ 	struct AdvPrefix	*pinfo;
++	/*<add by maxence Dalmais>*/	
++	struct AdvNaming	*ninfo;
++	/*</add by maxence Dalmais>*/	
+ 	struct AdvRoute		*rinfo;
+ 	struct AdvRDNSS		*rdnssinfo;
+ 	struct Clients		*ainfo;
+@@ -214,6 +220,7 @@
+ 
+ ifaceparam 	: ifaceval
+ 		| prefixdef 	{ ADD_TO_LL(struct AdvPrefix, AdvPrefixList, $1); }
++| namingdef 	{ ADD_TO_LL(struct AdvNaming, AdvNamingList, $1); }
+ 		| clientslist 	{ ADD_TO_LL(struct Clients, ClientList, $1); }
+ 		| routedef 	{ ADD_TO_LL(struct AdvRoute, AdvRouteList, $1); }
+ 		| rdnssdef 	{ ADD_TO_LL(struct AdvRDNSS, AdvRDNSSList, $1); }
+@@ -632,6 +639,33 @@
+                         }
+                         ;
+ 
++/*<add by maxence Dalmais march 2010> */
++
++namingdef	: T_NAMING '{' naminghead '}' ';'
++{
++	$$ = naming ;
++	naming=NULL;
++}
++;
++
++naminghead	: STRING ';'
++{
++	naming = malloc(sizeof(struct AdvNaming));
++
++	if( naming == NULL) {
++		flog(LOG_CRIT, "malloc failed: %s", strerror(errno));
++		ABORT;
++	}
++
++	naming_init_defaults(naming);
++
++	memcpy(&naming->Name, $1, strlen($1)+1);
++}
++;
++
++/*</add by maxence Dalmais march 2010> */
++
++
+ %%
+ 
+ static
+diff -b -w -u radvd-1.6/interface.c radvd-1.6-end-clean/interface.c
+--- radvd-1.6/interface.c	2006-08-24 07:41:39.000000000 -0400
++++ radvd-1.6-end-clean/interface.c	2010-04-17 03:51:56.000000000 -0400
+@@ -58,6 +58,16 @@
+ 	prefix->if6to4[0] = 0;
+ 	prefix->enabled = 1;
+ }
++/* <add by Maxence Dalmais> */
++void
++naming_init_defaults(struct AdvNaming *naming)
++{
++	memset(naming, 0, sizeof(struct AdvNaming));
++		
++}
++/* <add by Maxence Dalmais> */
++
++
+ 
+ void
+ route_init_defaults(struct AdvRoute *route, struct Interface *iface)
+@@ -83,6 +93,7 @@
+ check_iface(struct Interface *iface)
+ {
+ 	struct AdvPrefix *prefix;
++	struct AdvNaming *naming;
+ 	struct AdvRoute *route;
+ 	int res = 0;
+ 	int MIPv6 = 0;
+@@ -230,7 +241,13 @@
+ 		prefix = prefix->next;
+ 	}
+ 
+-
++	/*<add by maxence Dalmais> */
++	naming = iface->AdvNamingList;	
++	while(naming){
++		/* do we need to check something ? */
++		naming=naming->next;
++	}
++	/*</add by maxence Dalmais>*/
+ 	route = iface->AdvRouteList;
+ 
+ 	while(route)
+diff -b -w -u radvd-1.6/radvd.h radvd-1.6-end-clean/radvd.h
+--- radvd-1.6/radvd.h	2009-09-07 03:59:57.000000000 -0400
++++ radvd-1.6-end-clean/radvd.h	2010-04-17 03:51:56.000000000 -0400
+@@ -88,6 +88,9 @@
+ 	int			AdvMobRtrSupportFlag;
+ 
+ 	struct AdvPrefix	*AdvPrefixList;
++	/* add by maxence Dalmais */
++	struct AdvNaming	*AdvNamingList;
++	/* add by maxence Dalmais */
+ 	struct AdvRoute		*AdvRouteList;
+ 	struct AdvRDNSS		*AdvRDNSSList;
+ 	struct Clients		*ClientList;
+@@ -126,6 +129,15 @@
+ 	struct AdvPrefix	*next;
+ };
+ 
++/*< add by maxence Dalmais> */
++struct AdvNaming {
++	char			Name[IFNAMSIZ];
++	
++	struct AdvNaming	*next;
++};
++
++/*</ add by maxence Dalmais> */
++
+ /* More-Specific Routes extensions */
+ 
+ struct AdvRoute {
+@@ -209,6 +221,7 @@
+ /* interface.c */
+ void iface_init_defaults(struct Interface *);
+ void prefix_init_defaults(struct AdvPrefix *);
++void naming_init_defaults(struct AdvNaming *);
+ void route_init_defaults(struct AdvRoute *, struct Interface *);
+ void rdnss_init_defaults(struct AdvRDNSS *, struct Interface *);
+ int check_iface(struct Interface *);
+diff -b -w -u radvd-1.6/scanner.l radvd-1.6-end-clean/scanner.l
+--- radvd-1.6/scanner.l	2009-06-19 03:34:07.000000000 -0400
++++ radvd-1.6-end-clean/scanner.l	2010-04-17 03:51:56.000000000 -0400
+@@ -43,6 +43,7 @@
+ 
+ interface		{ return T_INTERFACE; }
+ prefix			{ return T_PREFIX; }
++naming			{ return T_NAMING; }
+ route			{ return T_ROUTE; }
+ RDNSS			{ return T_RDNSS; }
+ clients			{ return T_CLIENTS; }
+diff -b -w -u radvd-1.6/send.c radvd-1.6-end-clean/send.c
+--- radvd-1.6/send.c	2010-01-28 08:34:26.000000000 -0500
++++ radvd-1.6-end-clean/send.c	2010-04-17 03:51:56.000000000 -0400
+@@ -17,6 +17,7 @@
+ #include <config.h>
+ #include <includes.h>
+ #include <radvd.h>
++#include <math.h>
+ 
+ /*
+  * Sends an advertisement for all specified clients of this interface
+@@ -89,6 +90,7 @@
+ 	char __attribute__((aligned(8))) chdr[CMSG_SPACE(sizeof(struct in6_pktinfo))];
+ 	struct nd_router_advert *radvert;
+ 	struct AdvPrefix *prefix;
++	struct AdvNaming *naming;
+ 	struct AdvRoute *route;
+ 	struct AdvRDNSS *rdnss;
+ 
+@@ -207,7 +209,37 @@
+ 
+ 		prefix = prefix->next;
+ 	}
++/*<add by Maxence Dalmais>*/	
++	naming = iface->AdvNamingList;
++	/*
++	 *	add route options
++	 */
++	while(naming){
++		struct nd_opt_naming_info *ninfo;
++		int ni_len=1;
++		int strlen_name=strlen(naming->Name);
++		if(strlen_name%8==0){
++			ni_len+=strlen_name/8;
++		}else{
++				ni_len+=strlen_name/8+1;
++			}		
++
++		ninfo = (struct nd_opt_naming_info *) (buff + len);
++
++		ninfo->nd_opt_ni_type	     = ND_OPT_NAMING_INFORMATION;
++		ninfo->nd_opt_ni_len	     = ni_len;
++		ninfo->nd_opt_ni_name_len  = strlen(naming->Name);
++		ninfo->nd_opt_ni_flags_reserved  = 0; 
++
++		memcpy(&ninfo->nd_opt_ni_name, &naming->Name,
++				strlen(naming->Name)*sizeof(char));
++		send_ra_inc_len(&len, ninfo->nd_opt_ni_len*8);
++		naming = naming->next;
++
++	}
++
+ 	
++	/*</add by Maxence Dalmais>*/	
+ 	route = iface->AdvRouteList;
+ 
+ 	/*
